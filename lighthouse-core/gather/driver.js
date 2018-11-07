@@ -89,10 +89,10 @@ class Driver {
     this._lastSecurityState = null;
 
     /**
-     * @type {number}
+     * @type {number|undefined}
      * @private
      */
-    this._nextProtocolTimeout = DEFAULT_PROTOCOL_TIMEOUT;
+    this._nextProtocolTimeout = undefined;
   }
 
   static get traceCategories() {
@@ -276,8 +276,9 @@ class Driver {
    * @return {Promise<LH.CrdpCommands[C]['returnType']>}
    */
   sendCommand(method, ...params) {
-    const timeout = this._nextProtocolTimeout;
-    this._nextProtocolTimeout = DEFAULT_PROTOCOL_TIMEOUT;
+    const timeout = typeof this._nextProtocolTimeout === 'undefined' ?
+      DEFAULT_PROTOCOL_TIMEOUT : this._nextProtocolTimeout;
+    this._nextProtocolTimeout = undefined;
     const domainCommand = /^(\w+)\.(enable|disable)$/.exec(method);
     if (domainCommand) {
       const enable = domainCommand[2] === 'enable';
@@ -350,6 +351,7 @@ class Driver {
    * @return {Promise<*>}
    */
   async _evaluateInContext(expression, contextId) {
+    const evaluationTimeout = this._nextProtocolTimeout || 60000;
     const evaluationParams = {
       // We need to explicitly wrap the raw expression for several purposes:
       // 1. Ensure that the expression will be a native Promise and not a polyfill/non-Promise.
@@ -369,10 +371,12 @@ class Driver {
       includeCommandLineAPI: true,
       awaitPromise: true,
       returnByValue: true,
+      timeout: evaluationTimeout,
       contextId,
     };
 
-    this.setNextProtocolTimeout(60000);
+    // Give our custom protocol timeout a bit of a buffer for Runtime.evaluate to come back
+    this.setNextProtocolTimeout(evaluationTimeout);
     const response = await this.sendCommand('Runtime.evaluate', evaluationParams);
     if (response.exceptionDetails) {
       // An error occurred before we could even create a Promise, should be *very* rare
@@ -688,6 +692,20 @@ class Driver {
   }
 
   /**
+   * Returns whether the page appears to be hung.
+   * @return {Promise<boolean>}
+   */
+  async isPageHung() {
+    try {
+      this.setNextProtocolTimeout(5000);
+      await this.evaluateAsync('"ping"');
+      return false;
+    } catch (err) {
+      return true;
+    }
+  }
+
+  /**
    * Returns a promise that resolves when:
    * - All of the following conditions have been met:
    *    - pauseAfterLoadMs milliseconds have passed since the load event.
@@ -736,11 +754,17 @@ class Driver {
     const maxTimeoutPromise = new Promise((resolve, reject) => {
       maxTimeoutHandle = setTimeout(resolve, maxWaitForLoadedMs);
     }).then(_ => {
-      return function() {
-        log.warn('Driver', 'Timed out waiting for page load. Moving on...');
+      return async () => {
+        log.warn('Driver', 'Timed out waiting for page load. Checking if page is hung...');
         waitForLoadEvent.cancel();
         waitForNetworkIdle.cancel();
         waitForCPUIdle && waitForCPUIdle.cancel();
+
+        if (await this.isPageHung()) {
+          log.warn('Driver', 'Page appears to be hung, killing JavaScript...');
+          await this.sendCommand('Runtime.terminateExecution');
+          throw new LHError(LHError.errors.PAGE_HUNG);
+        }
       };
     });
 
@@ -749,7 +773,7 @@ class Driver {
       loadPromise,
       maxTimeoutPromise,
     ]);
-    cleanupFn();
+    await cleanupFn();
   }
 
   /**
