@@ -99,9 +99,11 @@ function runLighthouse(url, configPath, isDebug) {
     console.error(`STDERR: ${runResults.stderr}`);
   }
 
-  const lhr = runResults.status === PAGE_HUNG_EXIT_CODE ?
-    JSON.stringify({requestedUrl: url, finalUrl: url, errorCode: 'PAGE_HUNG', audits: {}}) :
-    fs.readFileSync(outputPath, 'utf8');
+  if (runResults.status === PAGE_HUNG_EXIT_CODE) {
+    return {requestedUrl: url, finalUrl: url, errorCode: 'PAGE_HUNG', audits: {}}
+  }
+
+  const lhr = fs.readFileSync(outputPath, 'utf8');
   if (isDebug) {
     console.log('LHR output available at: ', outputPath);
   } else if (fs.existsSync(outputPath)) {

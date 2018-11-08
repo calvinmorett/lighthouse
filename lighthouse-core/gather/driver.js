@@ -89,10 +89,10 @@ class Driver {
     this._lastSecurityState = null;
 
     /**
-     * @type {number|undefined}
+     * @type {number}
      * @private
      */
-    this._nextProtocolTimeout = undefined;
+    this._nextProtocolTimeout = DEFAULT_PROTOCOL_TIMEOUT;
   }
 
   static get traceCategories() {
@@ -276,9 +276,8 @@ class Driver {
    * @return {Promise<LH.CrdpCommands[C]['returnType']>}
    */
   sendCommand(method, ...params) {
-    const timeout = typeof this._nextProtocolTimeout === 'undefined' ?
-      DEFAULT_PROTOCOL_TIMEOUT : this._nextProtocolTimeout;
-    this._nextProtocolTimeout = undefined;
+    const timeout = this._nextProtocolTimeout;
+    this._nextProtocolTimeout = DEFAULT_PROTOCOL_TIMEOUT;
     const domainCommand = /^(\w+)\.(enable|disable)$/.exec(method);
     if (domainCommand) {
       const enable = domainCommand[2] === 'enable';
@@ -351,7 +350,6 @@ class Driver {
    * @return {Promise<*>}
    */
   async _evaluateInContext(expression, contextId) {
-    const evaluationTimeout = this._nextProtocolTimeout || 60000;
     const evaluationParams = {
       // We need to explicitly wrap the raw expression for several purposes:
       // 1. Ensure that the expression will be a native Promise and not a polyfill/non-Promise.
@@ -371,12 +369,11 @@ class Driver {
       includeCommandLineAPI: true,
       awaitPromise: true,
       returnByValue: true,
-      timeout: evaluationTimeout,
+      timeout: 60000,
       contextId,
     };
 
-    // Give our custom protocol timeout a bit of a buffer for Runtime.evaluate to come back
-    this.setNextProtocolTimeout(evaluationTimeout);
+    this.setNextProtocolTimeout(60000);
     const response = await this.sendCommand('Runtime.evaluate', evaluationParams);
     if (response.exceptionDetails) {
       // An error occurred before we could even create a Promise, should be *very* rare
@@ -697,8 +694,13 @@ class Driver {
    */
   async isPageHung() {
     try {
-      this.setNextProtocolTimeout(5000);
-      await this.evaluateAsync('"ping"');
+      this.setNextProtocolTimeout(1000);
+      await this.sendCommand('Runtime.evaluate', {
+        expression: '"ping"',
+        returnByValue: true,
+        timeout: 1000,
+      });
+
       return false;
     } catch (err) {
       return true;
@@ -762,6 +764,7 @@ class Driver {
 
         if (await this.isPageHung()) {
           log.warn('Driver', 'Page appears to be hung, killing JavaScript...');
+          await this.sendCommand('Emulation.setScriptExecutionDisabled', {value: true});
           await this.sendCommand('Runtime.terminateExecution');
           throw new LHError(LHError.errors.PAGE_HUNG);
         }

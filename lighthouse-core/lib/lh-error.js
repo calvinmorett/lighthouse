@@ -151,7 +151,7 @@ const ERRORS = {
   /* Used when the page stopped responding and did not finish loading. */
   PAGE_HUNG: {
     code: 'PAGE_HUNG',
-    message: strings.pageLoadFailed,
+    message: strings.pageLoadFailedHung,
     lhrRuntimeError: true,
   },
 
