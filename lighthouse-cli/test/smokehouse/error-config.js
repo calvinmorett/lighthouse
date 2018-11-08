@@ -6,7 +6,7 @@
 'use strict';
 
 /**
- * Config file for running PWA smokehouse audits.
+ * Config file for sites with various errors, just fail out quickly.
  */
 module.exports = {
   extends: 'lighthouse:default',
