@@ -100,7 +100,7 @@ function runLighthouse(url, configPath, isDebug) {
   }
 
   if (runResults.status === PAGE_HUNG_EXIT_CODE) {
-    return {requestedUrl: url, finalUrl: url, errorCode: 'PAGE_HUNG', audits: {}}
+    return {requestedUrl: url, finalUrl: url, errorCode: 'PAGE_HUNG', audits: {}};
   }
 
   const lhr = fs.readFileSync(outputPath, 'utf8');
